@@ -7,8 +7,9 @@ import { Ic, Logo } from '../../ui/icons'
 
 const num = (n: number) => Math.round(n).toLocaleString(locale()).replace(/[\u202f\u00a0]/g, ' ')
 const Money = ({ v }: { v: number }) => <>{num(v)}<small> FCFA</small></>
-const NAV: [string, string, string][] = [['admin', 'Accueil', 'home'], ['tables', 'Serveur', 'grid'], ['kitchen', 'Cuisine', 'flame'], ['cashier', 'Caisse', 'wallet'], ['orderlist', 'Commandes', 'list'], ['reservations', 'Réservations', 'cal'], ['audit', 'Journal d’audit', 'log'], ['settings', 'Paramètres', 'cog']]
+const NAV: [string, string, string][] = [['admin', 'Accueil', 'home'], ['tables', 'Serveur', 'grid'], ['kitchen', 'Cuisine', 'flame'], ['cashier', 'Caisse', 'wallet'], ['orderlist', 'Commandes', 'list'], ['report', 'Rapport du jour', 'chart'], ['reservations', 'Réservations', 'cal'], ['audit', 'Journal d’audit', 'log'], ['settings', 'Paramètres', 'cog']]
 const LABEL = { collected: 'Encaissé aujourd’hui', orders: 'Commandes du jour', tables: 'Tables ouvertes', outstanding: 'Reste à encaisser' } as const
+const ALERT = { cancel: 'Annulations élevées', discount: 'Remises nombreuses', unpaid: 'Tables clôturées avec impayé', cash: 'Écart de caisse' } as const
 const STATUS: Record<OrderStatus, [string, string]> = { submitted: ['Reçue', 'blue'], accepted: ['Reçue', 'blue'], preparing: ['En cours', 'yel'], ready: ['En cours', 'yel'], served: ['Servie', 'grn'], cancelled: ['Annulée', 'red'] }
 const FILL: Record<PayMethod, string> = { cash: 'var(--p1)', mtn_momo: 'var(--p2)', orange_money: 'var(--p3)' }
 
@@ -153,6 +154,7 @@ export function Admin({ shell }: { shell: Shell }) {
       {isError && <div className="empty">{tx('Tableau de bord indisponible.')} <button className="btn s" onClick={() => refetch()}>{tx('Réessayer')}</button></div>}
       {data && <>
         {data.sample && <p className="bn" style={{ margin: '0 0 14px' }}>{tx('Données d’exemple : les courbes, variations et paiements viennent d’une démo locale.')}</p>}
+        {data.alerts?.map(a => <p key={a.kind + a.detail} role="alert" className="bn" style={{ background: 'var(--rb)', color: 'var(--rd)', margin: '0 0 10px' }}><b>{tx(ALERT[a.kind])}</b> : {a.detail}</p>)}
         <div className="ad-stats">{data.kpis.map((k, i) => <Stat key={k.id} k={k} i={i} />)}</div>
         <div className="ad-r2"><Revenue d={data} /><Recent d={data} q={q} /></div>
         <div className="ad-r3"><Donut d={data} /><Trending d={data} /><Team d={data} /></div></>}

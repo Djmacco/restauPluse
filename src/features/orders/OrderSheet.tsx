@@ -1,34 +1,37 @@
-import { useT } from '../../i18n'
+import { lang, useT } from '../../i18n'
 import { useState } from 'react'
 import { useMenu, useOnline, useOrders, useSubmitOrder, useTransition } from '../../api/hooks'
 import { formatXaf, type MenuItem } from '../../domain/types'
 
 const COOK = ['Bien cuit', 'À point', 'Saignant']
-const SPICY_XAF = 500 // display estimate only, the server reprices
 export interface Line { menuItemId: string; name: string; qty: number; unitXaf: number; modifiers: string[]; note: string }
 
 export function ItemSheet({ item, onAdd, onClose }: { item: MenuItem; onAdd: (l: Line) => void; onClose: () => void }) {
   const tx = useT()
-  const [qty, setQty] = useState(1), [cook, setCook] = useState(''), [spicy, setSpicy] = useState(false), [note, setNote] = useState('')
-  const unit = item.priceXaf + (spicy ? SPICY_XAF : 0)
+  const [qty, setQty] = useState(1), [cook, setCook] = useState(''), [picked, setPicked] = useState<string[]>([]), [note, setNote] = useState('')
+  const opts = item.options ?? [] // display estimate only, the server reprices
+  const unit = item.priceXaf + opts.filter(o => picked.includes(o.name)).reduce((a, o) => a + o.priceXaf, 0)
   const ready = !item.cooking || cook !== ''
+  const dsc = lang() === 'en' ? item.descriptionEn ?? item.description : item.description
   return (
     <div className="ov" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="sheet" role="dialog" aria-modal="true" aria-label={tx(item.name)}>
         <div className="row sp"><h2>{tx(item.name)}</h2><b>{formatXaf(item.priceXaf)}</b></div>
+        {dsc && <p className="sm mu" style={{ margin: 0 }}>{dsc}</p>}
+        {(item.portion || item.allergens?.length) && <p className="sm mu" style={{ margin: 0 }}>{[item.portion, item.allergens?.length ? `${tx('Allergènes')} : ${item.allergens.map(tx).join(', ')}` : ''].filter(Boolean).join(', ')}</p>}
         {item.cooking && (
           <fieldset style={{ border: 0, padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
             <legend className="b sm" style={{ padding: '0 0 6px' }}>{tx('Cuisson (obligatoire)')}</legend>
             {COOK.map(c => <label key={c} className="opt"><input type="radio" name="cook" checked={cook === c} onChange={() => setCook(c)} />{tx(c)}</label>)}
           </fieldset>
         )}
-        {item.cooking && <label className="opt"><input type="checkbox" checked={spicy} onChange={e => setSpicy(e.target.checked)} />{tx('Sauce piquante')} (+{SPICY_XAF} FCFA)</label>}
+        {opts.map(o => <label key={o.name} className="opt"><input type="checkbox" checked={picked.includes(o.name)} onChange={e => setPicked(p => (e.target.checked ? [...p, o.name] : p.filter(x => x !== o.name)))} />{tx(o.name)} (+{o.priceXaf} FCFA)</label>)}
         <textarea rows={2} placeholder={tx('Instructions spéciales')} value={note} onChange={e => setNote(e.target.value)} />
         <div className="cnt">
           <button aria-label={tx('Moins')} onClick={() => setQty(Math.max(1, qty - 1))}>−</button><b>{qty}</b><button aria-label={tx('Plus')} onClick={() => setQty(qty + 1)}>+</button>
         </div>
         <button className="btn p w" disabled={!ready}
-          onClick={() => onAdd({ menuItemId: item.id, name: item.name, qty, unitXaf: unit, modifiers: [...(cook ? [cook] : []), ...(spicy ? ['Sauce piquante'] : [])], note })}>
+          onClick={() => onAdd({ menuItemId: item.id, name: item.name, qty, unitXaf: unit, modifiers: [...(cook ? [cook] : []), ...picked], note })}>
           {tx('Ajouter')}, {formatXaf(unit * qty)}
         </button>
       </div>
@@ -48,7 +51,7 @@ export function OrderSheet({ tableId, onClose }: { tableId: string; onClose: () 
   const cats = [...new Set(menu.map(m => m.category))]
   const list = menu.filter(m => (q ? m.name.toLowerCase().includes(q.toLowerCase()) : m.category === cat))
   const total = cart.reduce((a, l) => a + l.unitXaf * l.qty, 0)
-  const add = (m: MenuItem) => m.cooking ? setPick(m) : setCart(c => [...c, { menuItemId: m.id, name: m.name, qty: 1, unitXaf: m.priceXaf, modifiers: [], note: '' }])
+  const add = (m: MenuItem) => m.cooking || m.options?.length ? setPick(m) : setCart(c => [...c, { menuItemId: m.id, name: m.name, qty: 1, unitXaf: m.priceXaf, modifiers: [], note: '' }])
   return (
     <div className="col">
       <div className="row sp"><button className="btn s" onClick={onClose}>{tx('Retour aux tables')}</button><span className="b">{tx('Table')} {tableId}</span></div>
@@ -69,12 +72,12 @@ export function OrderSheet({ tableId, onClose }: { tableId: string; onClose: () 
         {!list.length && <div className="empty">{tx('Aucun plat ne correspond.')}</div>}
       </div>
       {submit.isError && <p role="alert" className="bn">{tx(submit.error.message)}</p>}
-      {!online && <p role="alert" className="bn">{tx('Hors ligne. La commande ne peut pas être envoyée.')}</p>}
+      {!online && <p role="alert" className="bn">{tx('Hors ligne : la commande sera gardée sur ce téléphone et envoyée au retour du réseau.')}</p>}
       {cart.length > 0 && (
         <div className="cartbar">
-          <button className="btn p w" disabled={submit.isPending || !online}
+          <button className="btn p w" disabled={submit.isPending}
             onClick={() => submit.mutate({ tableId, lines: cart.map(l => ({ menuItemId: l.menuItemId, qty: l.qty, modifiers: l.modifiers, note: l.note || undefined })) }, { onSuccess: onClose })}>
-            {submit.isPending ? tx('Envoi…') : `${tx('Envoyer en cuisine')} (${formatXaf(total)})`}
+            {submit.isPending ? tx('Envoi…') : `${online ? tx('Envoyer en cuisine') : tx('Enregistrer hors ligne')} (${formatXaf(total)})`}
           </button>
         </div>
       )}

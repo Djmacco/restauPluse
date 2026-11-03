@@ -12,4 +12,3 @@ Rules built in:
 - The UI talks to the `ApiClient` interface only (src/api/client.ts).
 
 Not done yet: auth and permissions, order sheet, bills and payments, cashier, admin, customer app, PWA plugin, tests.
-# restauPluse

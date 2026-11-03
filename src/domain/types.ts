@@ -24,6 +24,7 @@ export interface Order {
   cancelReason?: string
   placedBy?: string // who placed it (email in the demo, user id in production)
   cancelledBy?: string; cancelledAt?: string
+  settled?: 'paid' | 'unpaid' // set when the table session ends; 'unpaid' = closed by a manager with a balance
 }
 export interface TableView {
   id: string; label: string; seats: number
@@ -43,7 +44,7 @@ export const balanceXaf = (t: TableView) => t.billTotalXaf - t.paidXaf
 export const formatXaf = (n: number) => Math.round(n).toLocaleString('fr-FR').replace(/[\u202f\u00a0]/g, ' ') + ' FCFA'
 export const orderTotalXaf = (o: Order) => o.lines.reduce((a, l) => a + l.unitXaf * l.qty, 0)
 
-export interface MenuItem { id: string; name: string; priceXaf: number; category: string; cooking: boolean; available: boolean; prep?: 'ready' | 'made'; imageUrl?: string; oldPriceXaf?: number; stock?: number; promoEndsAt?: string }
+export interface MenuItem { id: string; name: string; priceXaf: number; category: string; cooking: boolean; available: boolean; prep?: 'ready' | 'made'; nameEn?: string; description?: string; descriptionEn?: string; allergens?: string[]; portion?: string; options?: { name: string; priceXaf: number }[]; imageUrl?: string; oldPriceXaf?: number; stock?: number; promoEndsAt?: string }
 export type PayMethod = 'cash' | 'mtn_momo' | 'orange_money'
 export const METHOD_LABEL: Record<PayMethod, string> = { cash: 'Espèces', mtn_momo: 'MTN Mobile Money', orange_money: 'Orange Money' }
 export interface Payment { id: string; amountXaf: number; method: PayMethod; reference?: string; at: string }
@@ -63,6 +64,7 @@ export interface Overview {
   paymentMix: { method: PayMethod; amountXaf: number }[]
   topDishes: { id: string; name: string; imageUrl?: string; priceXaf: number; orders: number }[]
   team: { name: string; role: string; orders: number; cancelled: number }[]
+  alerts: { kind: 'cancel' | 'discount' | 'unpaid' | 'cash'; detail: string }[] // unusual activity for the owner
 }
 
 export type Role = string // id of a role the owner or an administrator defined
@@ -78,11 +80,11 @@ export type PublicSettings = Pick<Settings, 'restaurant' | 'payments'>
 
 export interface TableCode { tableId: string; code: string; rotatedAt: string }
 
-export type Permission = 'dashboard' | 'orders' | 'kitchen' | 'cashier' | 'menu' | 'settings' | 'team' | 'reservations' | 'refunds' | 'audit' | 'cancel'
-export const PERMISSIONS: [Permission, string][] = [['dashboard', 'Tableau de bord'], ['orders', 'Prise de commande'], ['kitchen', 'Cuisine'], ['cashier', 'Caisse'], ['menu', 'Gestion du menu'], ['settings', 'Paramètres du restaurant'], ['team', 'Équipe et rôles'], ['reservations', 'Réservations'], ['refunds', 'Remboursements et remises'], ['cancel', 'Annuler des commandes'], ['audit', 'Journal d’audit']]
+export type Permission = 'dashboard' | 'orders' | 'kitchen' | 'cashier' | 'menu' | 'settings' | 'team' | 'reservations' | 'refunds' | 'audit' | 'cancel' | 'unpaid'
+export const PERMISSIONS: [Permission, string][] = [['dashboard', 'Tableau de bord'], ['orders', 'Prise de commande'], ['kitchen', 'Cuisine'], ['cashier', 'Caisse'], ['menu', 'Gestion du menu'], ['settings', 'Paramètres du restaurant'], ['team', 'Équipe et rôles'], ['reservations', 'Réservations'], ['refunds', 'Remboursements et remises'], ['cancel', 'Annuler des commandes'], ['unpaid', 'Clôturer une table impayée'], ['audit', 'Journal d’audit']]
 export interface RoleDef { id: string; name: string; permissions: Permission[]; system?: boolean }
 // Decides what to show. The server must check the permission on every request.
-const OPEN: Record<string, Permission[]> = { admin: ['dashboard'], tables: ['orders'], kitchen: ['kitchen'], cashier: ['cashier'], settings: ['settings', 'menu', 'team'], orderlist: ['orders', 'dashboard'], reservations: ['reservations'], audit: ['audit'] }
+const OPEN: Record<string, Permission[]> = { admin: ['dashboard'], tables: ['orders'], kitchen: ['kitchen'], cashier: ['cashier'], settings: ['settings', 'menu', 'team'], report: ['dashboard'], orderlist: ['orders', 'dashboard'], reservations: ['reservations'], audit: ['audit'] }
 export const canOpen = (s: Session, v: string) => OPEN[v]?.some(p => s.permissions.includes(p)) ?? false
 export const homeView = (s: Session) => ['admin', 'tables', 'cashier', 'kitchen', 'reservations', 'orderlist', 'settings', 'audit'].find(v => canOpen(s, v)) ?? 'none'
 export const can = (s: Session | null | undefined, p: Permission) => !!s?.permissions.includes(p)
@@ -96,3 +98,11 @@ export interface AuditEntry { id: string; at: string; actor: string; action: str
 export interface BookingInput { name: string; phone: string; date: string; time: string; party: number; tableId: string; note?: string }
 // What the guest keeps as proof. The code is unique and acts as the guest's key to read this one booking.
 export interface ReservationReceipt { code: string; name: string; date: string; time: string; party: number; tableId: string; status: ResStatus; note?: string; createdAt: string }
+export interface DailyReport {
+  date: string; ordersPlaced: number; billedXaf: number
+  collected: { method: PayMethod; amountXaf: number }[]; refundedXaf: number; discountsXaf: number
+  cancelled: { number: number; waiter: string; reason: string; by: string }[]
+  unpaid: { tableId: string; amountXaf: number; reason: string; by: string }[]
+  shifts: { cashier: string; openingXaf: number; expectedXaf: number; countedXaf: number; diffXaf: number; note?: string }[]
+}
+export interface SignupInput { restaurantName: string; name: string; email: string; password: string }

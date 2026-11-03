@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { enqueue } from './queue'
+import { learn } from '../i18n'
 import { ApiError, HttpClient, MockClient, type ApiClient } from './client'
-import type { BookingInput, Settings, OrderStatus, RecordPaymentInput, ServiceKind, SubmitOrderInput } from '../domain/types'
+import type { BookingInput, Order, Settings, SignupInput, OrderStatus, RecordPaymentInput, ServiceKind, SubmitOrderInput } from '../domain/types'
 
 const url = import.meta.env.VITE_API_URL as string | undefined
 export const api: ApiClient = url ? new HttpClient(url) : new MockClient()
@@ -15,9 +17,9 @@ function useLiveInvalidate(keys: string[]) {
 // Polling and focus refetch cover the case where the socket drops silently.
 const live = { refetchInterval: 20_000, refetchOnWindowFocus: true } as const
 
-export const useOrders = () => {
+export const useOrders = (enabled = true) => {
   useLiveInvalidate(['orders', 'tables'])
-  return useQuery({ queryKey: ['orders'], queryFn: () => api.listOrders(), ...live })
+  return useQuery({ queryKey: ['orders'], queryFn: () => api.listOrders(), enabled, ...live })
 }
 export const useTables = () => {
   useLiveInvalidate(['orders', 'tables'])
@@ -38,11 +40,17 @@ export function useSubmitOrder() {
   // One key per cart, reused on retry, so a timeout cannot create a duplicate order.
   const key = useRef(crypto.randomUUID())
   return useMutation({
-    mutationFn: (i: SubmitOrderInput) => api.submitOrder(i, key.current),
-    onSuccess: () => {
-      key.current = crypto.randomUUID()
-      qc.invalidateQueries({ queryKey: ['orders'] }); qc.invalidateQueries({ queryKey: ['tables'] })
+    mutationFn: async (i: SubmitOrderInput): Promise<Order | 'queued'> => {
+      try {
+        if (!navigator.onLine) throw new ApiError(0, 'Connexion perdue. Rien n’a été enregistré.')
+        return await api.submitOrder(i, key.current)
+      } catch (e) {
+        // No network: keep the order on this phone with the same key. It is sent when the signal returns, and the server ignores a repeat.
+        if (e instanceof ApiError && e.status === 0) { enqueue(i, key.current); return 'queued' }
+        throw e
+      }
     },
+    onSuccess: () => { key.current = crypto.randomUUID(); qc.invalidateQueries({ queryKey: ['orders'] }); qc.invalidateQueries({ queryKey: ['tables'] }) },
   })
 }
 
@@ -56,7 +64,8 @@ export function useNow(ms = 1000) {
   return t
 }
 
-export const useMenu = () => useQuery({ queryKey: ['menu'], queryFn: () => api.listMenu(), staleTime: 60_000 })
+// table: a customer's table code (string), nothing for staff (undefined), or null to wait until the code is known.
+export const useMenu = (table?: string | null) => useQuery({ queryKey: ['menu', table ?? 'staff'], enabled: table !== null, queryFn: async () => { const m = await api.listMenu(table ?? undefined); learn(Object.fromEntries(m.filter(x => x.nameEn).map(x => [x.name, x.nameEn!]))); return m }, staleTime: 60_000 })
 export const useBill = (tableId: string | null) => {
   useLiveInvalidate(['bill'])
   return useQuery({ queryKey: ['bill', tableId], queryFn: () => api.getBill(tableId!), enabled: !!tableId, ...live })
@@ -115,7 +124,7 @@ export function useLogout() {
 }
 export const useReset = () => useMutation({ mutationFn: (email: string) => api.requestReset(email) })
 export const useSettings = () => useQuery({ queryKey: ['settings'], queryFn: () => api.getSettings(), staleTime: 30_000 })
-export const usePublicSettings = () => useQuery({ queryKey: ['public-settings'], queryFn: () => api.getPublicSettings(), staleTime: 30_000 })
+export const usePublicSettings = (table?: string | null) => useQuery({ queryKey: ['public-settings', table ?? ''], enabled: table !== null, queryFn: () => api.getPublicSettings(table ?? undefined), staleTime: 30_000 })
 export const useStaff = () => useQuery({ queryKey: ['staff'], queryFn: () => api.listStaff() })
 function useAct<V, R>(fn: (v: V) => Promise<R>, keys: string[]) {
   const qc = useQueryClient()
@@ -153,3 +162,13 @@ export function useBook() {
 }
 export const useReceipt = (code: string | null) => useQuery({ queryKey: ['receipt', code], queryFn: () => api.getReceipt(code!), enabled: !!code, retry: false, refetchInterval: 20_000 })
 export const useFindReservation = (code: string) => useQuery({ queryKey: ['reservations', 'code', code], queryFn: () => api.findReservation(code), enabled: code.trim().length >= 6 })
+
+// Closing with an unpaid balance, history, daily report, pending bookings
+export const useCloseTable = () => useAct((v: { tableId: string; reason: string }) => api.closeTable(v.tableId, v.reason), ['tables', 'bill', 'orders', 'overview', 'audit', 'history', 'report'])
+export const useOrderHistory = (from: string, to: string, on: boolean) => useQuery({ queryKey: ['history', from, to], queryFn: () => api.listOrderHistory(from, to), enabled: on })
+export const useDailyReport = (date: string) => useQuery({ queryKey: ['report', date], queryFn: () => api.getDailyReport(date) })
+export const usePendingReservations = (enabled: boolean) => useQuery({ queryKey: ['reservations', 'pending'], queryFn: () => api.listPendingReservations(), enabled, refetchInterval: 20_000, refetchOnWindowFocus: true })
+export function useSignup() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (i: SignupInput) => api.signup(i), onSuccess: s => { qc.clear(); qc.setQueryData(['session'], s) } }) // the owner is signed in straight away
+}

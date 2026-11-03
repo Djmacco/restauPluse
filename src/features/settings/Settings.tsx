@@ -16,13 +16,21 @@ const readImage = (f: File) => new Promise<string>((ok, no) => {
 function Field({ label, children }: { label: string; children: ReactNode }) { const tx = useT(); return <label className="st-f"><span>{tx(label)}</span>{children}</label> }
 function Err({ e }: { e: unknown }) { const tx = useT(); return e ? <p role="alert" className="bn">{tx((e as Error).message)}</p> : null }
 
+const parseOpts = (t: string) => t.split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [n, p] = l.split(':').map(x => x.trim()); return { name: n!, priceXaf: Number(p) || 0 } })
 function MenuRow({ item, cats }: { item?: MenuItem; cats: string[] }) {
-  const tx = useT(), save = useSaveMenuItem()
-  const [d, setD] = useState({ name: item?.name ?? '', price: String(item?.priceXaf ?? ''), category: item?.category ?? cats[0] ?? '', cooking: item?.cooking ?? false, prep: (item?.prep ?? 'made') as 'ready' | 'made', available: item?.available ?? true, imageUrl: item?.imageUrl })
+  const tx = useT(), save = useSaveMenuItem(), [more, setMore] = useState(false)
+  const blank = { nameEn: '', description: '', descriptionEn: '', allergens: '', portion: '', options: '', oldPrice: '', promoEnds: '' }
+  const [d, setD] = useState({ name: item?.name ?? '', price: String(item?.priceXaf ?? ''), category: item?.category ?? cats[0] ?? '', cooking: item?.cooking ?? false, prep: (item?.prep ?? 'made') as 'ready' | 'made', available: item?.available ?? true, imageUrl: item?.imageUrl,
+    ...(item ? { nameEn: item.nameEn ?? '', description: item.description ?? '', descriptionEn: item.descriptionEn ?? '', allergens: (item.allergens ?? []).join(', '), portion: item.portion ?? '', options: (item.options ?? []).map(o => `${o.name} : ${o.priceXaf}`).join('\n'), oldPrice: item.oldPriceXaf ? String(item.oldPriceXaf) : '', promoEnds: item.promoEndsAt ? item.promoEndsAt.slice(0, 16) : '' } : blank) })
   const [err, setErr] = useState<unknown>(null)
   const go = (over: Partial<typeof d> = {}) => {
     const x = { ...d, ...over }; setD(x); setErr(null)
-    save.mutate({ ...(item ? { id: item.id } : {}), name: x.name, priceXaf: Number(x.price), category: x.category, cooking: x.cooking, prep: x.prep, available: x.available, imageUrl: x.imageUrl }, { onSuccess: () => { if (!item) setD({ ...d, name: '', price: '', imageUrl: undefined }) }, onError: setErr })
+    // The body is the full editable state: a field left empty here is cleared on the server.
+    save.mutate({ ...(item ? { id: item.id } : {}), name: x.name, priceXaf: Number(x.price), category: x.category, cooking: x.cooking, prep: x.prep, available: x.available, imageUrl: x.imageUrl,
+      nameEn: x.nameEn.trim() || undefined, description: x.description.trim() || undefined, descriptionEn: x.descriptionEn.trim() || undefined, portion: x.portion.trim() || undefined,
+      allergens: x.allergens.split(',').map(a => a.trim()).filter(Boolean), options: parseOpts(x.options),
+      oldPriceXaf: x.oldPrice ? Number(x.oldPrice) : undefined, promoEndsAt: x.promoEnds ? new Date(x.promoEnds).toISOString() : undefined },
+      { onSuccess: () => { if (!item) setD(p => ({ ...p, name: '', price: '', imageUrl: undefined, ...blank })) }, onError: setErr })
   }
   return (
     <div className="st-row">
@@ -34,7 +42,17 @@ function MenuRow({ item, cats }: { item?: MenuItem; cats: string[] }) {
       {item && <label className="opt"><input type="checkbox" checked={d.available} onChange={e => go({ available: e.target.checked })} />{tx('Disponible')}</label>}
       <label className="btn s" style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>{d.imageUrl ? '✓ ' : ''}{tx('Photo')}
         <input type="file" accept="image/*" hidden onChange={async e => { const f = e.target.files?.[0]; if (f) try { setD({ ...d, imageUrl: await readImage(f) }); setErr(null) } catch (x) { setErr(x) } }} /></label>
+      <button className="btn s" aria-expanded={more} onClick={() => setMore(!more)}>{tx('Détails')}</button>
       <button className="btn s p" disabled={save.isPending || !d.name.trim() || !d.price} onClick={() => go()}>{item ? tx('Enregistrer') : tx('Ajouter un plat')}</button>
+      {more && <div className="st-grid" style={{ gridColumn: '1 / -1' }}>
+        <Field label="Nom (anglais)"><input type="text" value={d.nameEn} onChange={e => setD({ ...d, nameEn: e.target.value })} /></Field>
+        <Field label="Portion"><input type="text" value={d.portion} onChange={e => setD({ ...d, portion: e.target.value })} /></Field>
+        <Field label="Description (français)"><textarea rows={2} value={d.description} onChange={e => setD({ ...d, description: e.target.value })} /></Field>
+        <Field label="Description (anglais)"><textarea rows={2} value={d.descriptionEn} onChange={e => setD({ ...d, descriptionEn: e.target.value })} /></Field>
+        <Field label="Allergènes (séparés par des virgules)"><input type="text" value={d.allergens} onChange={e => setD({ ...d, allergens: e.target.value })} /></Field>
+        <Field label="Options payantes (une par ligne : nom : prix)"><textarea rows={3} placeholder="Sauce piquante : 500" value={d.options} onChange={e => setD({ ...d, options: e.target.value })} /></Field>
+        <Field label="Prix barré (ancien prix)"><input type="number" value={d.oldPrice} onChange={e => setD({ ...d, oldPrice: e.target.value })} /></Field>
+        <Field label="Fin de la promotion"><input type="datetime-local" value={d.promoEnds} onChange={e => setD({ ...d, promoEnds: e.target.value })} /></Field></div>}
       <div style={{ gridColumn: '1 / -1' }}><Err e={err ?? save.error} /></div>
     </div>
   )

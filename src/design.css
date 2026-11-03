@@ -179,3 +179,5 @@ input[type=date],input[type=time]{font:inherit;color:var(--tx);background:var(--
 /* booking receipt printing */
 @media print{body *{visibility:hidden}.rv-print,.rv-print *{visibility:visible}.rv-print{position:absolute;left:0;top:0}}
 .bk{padding:26px 22px 40px}.bk h1{margin:16px 0 18px;font-size:26px}
+input[type=datetime-local]{font:inherit;color:var(--tx);background:var(--f);border:0;border-radius:12px;padding:12px 14px;min-height:48px;width:100%}
+@media print{header,.np-wrap{display:none!important}.print-title{display:block!important}}

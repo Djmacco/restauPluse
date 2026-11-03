@@ -6,7 +6,7 @@ import { Logo } from '../../ui/icons'
 const DEMO = !import.meta.env.VITE_API_URL
 const ACCOUNTS: [string, string, string][] = [['owner@demo.cm', 'owner123', 'Propriétaire'], ['admin@demo.cm', 'admin123', 'Administrateur'], ['manager@demo.cm', 'manager123', 'Gérant'], ['waiter@demo.cm', 'waiter123', 'Serveur'], ['cashier@demo.cm', 'cashier123', 'Caissier'], ['kitchen@demo.cm', 'kitchen123', 'Cuisine'], ['secretary@demo.cm', 'secretary123', 'Secrétaire']]
 
-export function Login({ onCustomer, onBook }: { onCustomer: () => void; onBook: () => void }) {
+export function Login({ onCustomer, onBook, onHome, onSignup }: { onCustomer: () => void; onBook: () => void; onHome: () => void; onSignup: () => void }) {
   const tx = useT(), login = useLogin(), reset = useReset()
   const [email, setEmail] = useState(''), [pw, setPw] = useState(''), [forgot, setForgot] = useState(false)
   return (
@@ -27,6 +27,8 @@ export function Login({ onCustomer, onBook }: { onCustomer: () => void; onBook: 
       <button className="lg-link" onClick={() => { setForgot(!forgot); reset.reset() }}>{forgot ? tx('Retour à la connexion') : tx('Mot de passe oublié ?')}</button>
       {DEMO && !forgot && <div className="lg-demo"><p className="sm mu" style={{ margin: 0 }}>{tx('Comptes de démonstration (sans valeur réelle)')}</p>
         <div>{ACCOUNTS.map(([e, p, r]) => <button key={e} className="btn s" onClick={() => { setEmail(e); setPw(p) }}>{tx(r)}</button>)}</div></div>}
+      <button className="lg-link" onClick={onSignup}>{tx('Créer votre restaurant')}</button>
+      <button className="lg-link" onClick={onHome}>{tx('Page publique du restaurant')}</button>
       <button className="lg-link" onClick={onBook}>{tx('Réserver une table')}</button>
       <button className="lg-link" onClick={onCustomer}>{tx('Application client (QR)')}</button>
     </div>

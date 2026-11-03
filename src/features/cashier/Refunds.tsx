@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useDiscount, usePayments, useRefund } from '../../api/hooks'
+import { useCloseTable, useDiscount, usePayments, useRefund } from '../../api/hooks'
 import { locale, useT } from '../../i18n'
 import { METHOD_LABEL, formatXaf } from '../../domain/types'
 
@@ -35,5 +35,19 @@ export function RefundsPanel() {
         </div>))}
       {refund.isError && <p role="alert" className="bn">{tx(refund.error.message)}</p>}
     </section>
+  )
+}
+
+export function CloseTableForm({ tableId, remaining }: { tableId: string; remaining: number }) {
+  const tx = useT(), c = useCloseTable(), [open, setOpen] = useState(false), [why, setWhy] = useState('')
+  if (!open) return <button className="btn s" onClick={() => setOpen(true)}>{tx('Clôturer avec impayé')}</button>
+  return (
+    <div className="st-row">
+      <p className="sm" style={{ gridColumn: '1 / -1', margin: 0 }}>{tx('Le solde de')} <b>{formatXaf(remaining)}</b> {tx('sera enregistré comme impayé.')}</p>
+      <input type="text" aria-label={tx('Motif')} placeholder={tx('Motif')} value={why} onChange={e => setWhy(e.target.value)} />
+      <button className="btn s p" disabled={c.isPending || !why.trim()} onClick={() => c.mutate({ tableId, reason: why }, { onSuccess: () => { setOpen(false); setWhy('') } })}>{tx('Confirmer')}</button>
+      <button className="btn s" onClick={() => setOpen(false)}>{tx('Annuler')}</button>
+      {c.isError && <p role="alert" className="bn" style={{ gridColumn: '1 / -1', margin: 0 }}>{tx(c.error.message)}</p>}
+    </div>
   )
 }

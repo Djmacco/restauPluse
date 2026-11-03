@@ -6,6 +6,9 @@ const KEY = 'rp-lang'
 let cur: Lang = 'fr' // French is the default
 try { const s = localStorage.getItem(KEY); if (s === 'en' || s === 'fr') cur = s } catch { /* storage can be unavailable */ }
 
+// Dish names typed by the owner in English are learned at runtime, so every screen translates them.
+const DYN: Record<string, string> = {}
+export const learn = (p: Record<string, string>) => { Object.assign(DYN, p) }
 export const lang = () => cur
 export const locale = () => (cur === 'en' ? 'en-GB' : 'fr-FR')
 const Ctx = createContext<{ lang: Lang; set: (l: Lang) => void }>({ lang: 'fr', set: () => {} })
@@ -18,7 +21,7 @@ export function LangProvider({ children }: { children: ReactNode }) {
 }
 
 // French text is the key. Unknown keys fall back to themselves, so a missing translation shows French, never a blank.
-export const useT = () => { const { lang: l } = useContext(Ctx); return (k: string) => (l === 'en' ? EN[k] ?? k : k) }
+export const useT = () => { const { lang: l } = useContext(Ctx); return (k: string) => (l === 'en' ? EN[k] ?? DYN[k] ?? k : k) }
 
 export function LangSwitch() {
   const { lang: l, set } = useContext(Ctx)

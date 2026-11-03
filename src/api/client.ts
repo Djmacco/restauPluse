@@ -4,7 +4,7 @@ import saladImg from '../assets/salad.jpg'
 import gyozaImg from '../assets/gyoza.jpg'
 import cookiesImg from '../assets/cookies.jpg'
 import croissantImg from '../assets/croissant.jpg'
-import { PERMISSIONS, canMove, type BookingInput, type ReservationReceipt, type AuditEntry, type PaymentRec, type Reservation, type ReservationInput, type ResStatus, type Shift, type Permission, type RoleDef, type TableCode, type PublicSettings, type Role, type Session, type Settings, type Staff, type Overview, type PayMethod, type ServiceKind, type ServiceRequest, type Bill, type MenuItem, type Payment, type Receipt, type RecordPaymentInput, type Order, type OrderStatus, type ServerEvent, type SubmitOrderInput, type TableView } from '../domain/types'
+import { PERMISSIONS, canMove, type SignupInput, type DailyReport, type BookingInput, type ReservationReceipt, type AuditEntry, type PaymentRec, type Reservation, type ReservationInput, type ResStatus, type Shift, type Permission, type RoleDef, type TableCode, type PublicSettings, type Role, type Session, type Settings, type Staff, type Overview, type PayMethod, type ServiceKind, type ServiceRequest, type Bill, type MenuItem, type Payment, type Receipt, type RecordPaymentInput, type Order, type OrderStatus, type ServerEvent, type SubmitOrderInput, type TableView } from '../domain/types'
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message) }
@@ -16,7 +16,8 @@ export interface ApiClient {
   listTables(): Promise<TableView[]>
   submitOrder(input: SubmitOrderInput, idempotencyKey: string): Promise<Order>
   transitionOrder(id: string, to: OrderStatus, version: number): Promise<Order>
-  listMenu(): Promise<MenuItem[]>
+  // Customers pass their table code so the server knows which restaurant. Staff pass nothing: the session tells it.
+  listMenu(table?: string): Promise<MenuItem[]>
   getOverview(): Promise<Overview>
   getBill(tableId: string): Promise<Bill>
   recordPayment(tableId: string, input: RecordPaymentInput, idempotencyKey: string): Promise<Receipt>
@@ -32,9 +33,10 @@ export interface ApiClient {
   login(email: string, password: string): Promise<Session>
   logout(): Promise<void>
   requestReset(email: string): Promise<void>
+  signup(input: SignupInput): Promise<Session>
   // Configuration, owner only except reads
   getSettings(): Promise<Settings>
-  getPublicSettings(): Promise<PublicSettings>
+  getPublicSettings(table?: string): Promise<PublicSettings>
   saveSettings(s: Settings): Promise<Settings>
   listStaff(): Promise<Staff[]>
   saveStaff(s: Omit<Staff, 'id'> & { id?: string }): Promise<Staff & { tempPassword?: string }>
@@ -68,6 +70,10 @@ export interface ApiClient {
   bookTable(input: BookingInput, idempotencyKey: string): Promise<ReservationReceipt>
   getReceipt(code: string): Promise<ReservationReceipt>
   findReservation(code: string): Promise<Reservation | null>
+  closeTable(tableId: string, reason: string): Promise<void>
+  listOrderHistory(from: string, to: string): Promise<Order[]>
+  getDailyReport(date: string): Promise<DailyReport>
+  listPendingReservations(): Promise<Reservation[]>
   subscribe(onEvent: (e: ServerEvent) => void): () => void
 }
 
@@ -95,15 +101,16 @@ export class HttpClient implements ApiClient {
   transitionOrder(id: string, to: OrderStatus, version: number) {
     return this.req<Order>(`/orders/${id}/status`, { method: 'POST', body: JSON.stringify({ to, version }) })
   }
-  listMenu() { return this.req<MenuItem[]>('/menu/items') }
+  listMenu(table?: string) { return this.req<MenuItem[]>(`/menu/items${table ? `?t=${encodeURIComponent(table)}` : ''}`) }
   listRequests() { return this.req<ServiceRequest[]>('/service-requests?open=true') }
   updateRequest(id: string, state: 'acknowledged' | 'done') { return this.req<ServiceRequest>(`/service-requests/${id}`, { method: 'PATCH', body: JSON.stringify({ state }) }) }
   me() { return this.req<Session | null>('/auth/me') }
   login(email: string, password: string) { return this.req<Session>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }) }
   logout() { return this.req<void>('/auth/logout', { method: 'POST' }) }
   requestReset(email: string) { return this.req<void>('/auth/reset', { method: 'POST', body: JSON.stringify({ email }) }) }
+  signup(i: SignupInput) { return this.req<Session>('/auth/admin/signup', { method: 'POST', body: JSON.stringify(i) }) }
   getSettings() { return this.req<Settings>('/settings') }
-  getPublicSettings() { return this.req<PublicSettings>('/public/settings') }
+  getPublicSettings(table?: string) { return this.req<PublicSettings>(`/public/settings${table ? `?t=${encodeURIComponent(table)}` : ''}`) }
   saveSettings(s: Settings) { return this.req<Settings>('/settings', { method: 'PUT', body: JSON.stringify(s) }) }
   listStaff() { return this.req<Staff[]>('/staff') }
   saveStaff(s: Omit<Staff, 'id'> & { id?: string }) { return this.req<Staff & { tempPassword?: string }>(s.id ? `/staff/${s.id}` : '/staff', { method: s.id ? 'PATCH' : 'POST', body: JSON.stringify(s) }) }
@@ -131,6 +138,10 @@ export class HttpClient implements ApiClient {
   bookTable(input: BookingInput, key: string) { return this.req<ReservationReceipt>('/public/reservations', { method: 'POST', body: JSON.stringify(input) }, key) }
   getReceipt(code: string) { return this.req<ReservationReceipt>(`/public/reservations/${encodeURIComponent(code)}`) }
   findReservation(code: string) { return this.req<Reservation | null>(`/reservations/by-code/${encodeURIComponent(code)}`) }
+  closeTable(tableId: string, reason: string) { return this.req<void>(`/tables/${tableId}/close`, { method: 'POST', body: JSON.stringify({ reason }) }) }
+  listOrderHistory(from: string, to: string) { return this.req<Order[]>(`/orders?from=${from}&to=${to}`) }
+  getDailyReport(date: string) { return this.req<DailyReport>(`/reports/daily?date=${date}`) }
+  listPendingReservations() { return this.req<Reservation[]>('/reservations?status=pending') }
   getOverview() { return this.req<Overview>('/reports/overview') }
   getBill(tableId: string) { return this.req<Bill>(`/tables/${tableId}/bill`) }
   recordPayment(tableId: string, input: RecordPaymentInput, key: string) {
@@ -165,6 +176,17 @@ const MOCK_MENU: MenuItem[] = [
   M('eau', 'Eau minérale 1 L', 500, 0), M('gingembre', 'Jus de gingembre', 1000, 0), M('biere', 'Bière locale 33 cl', 1500, 0),
   M('poulet', 'Poulet braisé', 4500, 1), M('poisson', 'Poisson braisé', 5000, 1), M('brochettes', 'Brochettes de bœuf', 2500, 1),
   M('plantain', 'Plantain frit', 1000, 2), M('manioc', 'Bâtons de manioc', 800, 2), M('riz', 'Riz sauté', 1500, 2)]
+const SAUCE = [{ name: 'Sauce piquante', priceXaf: 500 }]
+const EXTRA: Record<string, Partial<MenuItem>> = {
+  salad: { nameEn: 'Tomato and tofu salad', description: 'Tomates, tofu, basilic et huile d’olive.', descriptionEn: 'Tomatoes, tofu, basil and olive oil.', allergens: ['Soja'], portion: '250 g' },
+  gyoza: { description: 'Raviolis japonais au poulet, servis avec une sauce soja.', descriptionEn: 'Japanese chicken dumplings served with soy sauce.', allergens: ['Gluten', 'Soja'], portion: '6 pièces' },
+  cookies: { description: 'Cookies maison avec un verre de lait.', descriptionEn: 'Homemade cookies with a glass of milk.', allergens: ['Gluten', 'Lait', 'Œufs'] },
+  croissant: { description: 'Croissant au beurre, préparé le matin.', descriptionEn: 'Butter croissant, baked in the morning.', allergens: ['Gluten', 'Lait'] },
+  poulet: { description: 'Demi-poulet braisé au charbon.', descriptionEn: 'Charcoal-grilled half chicken.', options: SAUCE, portion: '1/2 poulet' },
+  poisson: { description: 'Poisson frais braisé, épices de la maison.', descriptionEn: 'Fresh grilled fish with house spices.', allergens: ['Poisson'], options: SAUCE },
+  brochettes: { description: 'Brochettes de bœuf marinées.', descriptionEn: 'Marinated beef skewers.', options: SAUCE, portion: '3 brochettes' },
+}
+MOCK_MENU.forEach((m, i) => { MOCK_MENU[i] = { ...m, ...EXTRA[m.id] } })
 const wait = (ms = 250) => new Promise(r => setTimeout(r, ms))
 const ago = (min: number) => new Date(Date.now() - min * 60000).toISOString()
 
@@ -228,6 +250,10 @@ export class MockClient implements ApiClient {
   private discounts = new Map<string, { a: number; reason: string }>()
   private shifts: (Shift & { cashSales: number; cashierEmail: string })[] = []
   private log: AuditEntry[] = []
+  private archive: Order[] = [] // orders of settled or closed table sessions. Cancelled and unpaid orders are never deleted.
+  private unpaidLog: { tableId: string; amountXaf: number; reason: string; by: string; at: string }[] = []
+  private discountLog: { at: string; amountXaf: number; by: string }[] = []
+  private refundLog: { at: string; amountXaf: number }[] = []
   private booked = new Map<string, ReservationReceipt>()
   private reservations: Reservation[] = [
     { id: 'res1', name: 'Famille Tchoumi', phone: '+237 6 11 11 11 11', date: new Date().toISOString().slice(0, 10), time: '19:30', party: 6, tableId: '4', status: 'confirmed', code: 'RV-3K9M2A' },
@@ -244,7 +270,8 @@ export class MockClient implements ApiClient {
       refundPayment: ['Remboursement', a => `${a[0]}, ${a[1]} FCFA, ${a[2]}`], applyDiscount: ['Remise', a => `Table ${a[0]}, ${a[1]} FCFA, ${a[2]}`],
       cancelOrder: ['Commande annulée', a => { const o = this.orders.find(x => x.id === a[0]); return `#${o?.number} (${o?.waiterName}): ${a[2]}` }],
       submitOrder: ['Commande envoyée', a => `Table ${a[0].tableId}, ${a[0].lines.length} ${a[0].lines.length > 1 ? 'lignes' : 'ligne'}`], openShift: ['Caisse ouverte', a => `${a[0]} FCFA`], closeShift: ['Caisse fermée', a => `${a[0]} FCFA, ${a[1]}`],
-      cashMovement: ['Mouvement de caisse', a => `${a[0]} ${a[1]} FCFA, ${a[2]}`], saveReservation: ['Réservation créée', a => a[0].name], bookTable: ['Réservation créée', a => `${a[0].name} (en ligne)`], setReservationStatus: ['Statut de réservation', a => `${a[0]} ${a[1]}`] }
+      cashMovement: ['Mouvement de caisse', a => `${a[0]} ${a[1]} FCFA, ${a[2]}`], saveReservation: ['Réservation créée', a => a[0].name], bookTable: ['Réservation créée', a => `${a[0].name} (en ligne)`],
+      closeTable: ['Table clôturée avec impayé', a => { const u = this.unpaidLog[this.unpaidLog.length - 1]; return `Table ${a[0]}, ${u?.amountXaf} FCFA: ${a[1]}` }], setReservationStatus: ['Statut de réservation', a => `${a[0]} ${a[1]}`] }
     const self = this as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>
     for (const [name, [label, detail]] of Object.entries(A)) {
       const orig = self[name]!.bind(this)
@@ -270,7 +297,7 @@ export class MockClient implements ApiClient {
     return { tableId, lines, discountXaf, totalXaf, paidXaf, remainingXaf: totalXaf - paidXaf, payments }
   }
   async listOrders() { await wait(); return structuredClone(this.orders) }
-  async listMenu() { await wait(100); return structuredClone(MOCK_MENU) }
+  async listMenu(table?: string) { await wait(100); if (table !== undefined) this.table(table); return structuredClone(this.menu()) }
   async listRequests() { await wait(); return structuredClone(this.reqs.filter(r => r.state !== 'done')) }
   async updateRequest(id: string, state: 'acknowledged' | 'done') {
     await wait()
@@ -312,14 +339,14 @@ export class MockClient implements ApiClient {
       const x = this.shiftOf(); if (!x) throw new ApiError(409, 'Ouvrez la caisse avant de rembourser en espèces.')
       x.moves.push({ kind: 'refund', amountXaf, reason: reason.trim(), at: new Date().toISOString() })
     }
-    p.refundedXaf += amountXaf; this.emit(); return structuredClone(p)
+    p.refundedXaf += amountXaf; this.refundLog.push({ at: new Date().toISOString(), amountXaf }); this.emit(); return structuredClone(p)
   }
   async applyDiscount(tableId: string, amountXaf: number, reason: string) {
     await wait(); this.need('refunds')
     if (!reason.trim()) throw new ApiError(422, 'Motif requis.')
     const b = this.bill(tableId)
     if (!Number.isInteger(amountXaf) || amountXaf <= 0 || amountXaf > b.totalXaf + (b.discountXaf ?? 0) - b.paidXaf) throw new ApiError(422, 'Remise trop élevée.')
-    this.discounts.set(tableId, { a: amountXaf, reason: reason.trim() }); this.emit()
+    this.discounts.set(tableId, { a: amountXaf, reason: reason.trim() }); this.discountLog.push({ at: new Date().toISOString(), amountXaf, by: this.fresh()!.name }); this.emit()
   }
   async cancelOrder(id: string, version: number, reason: string) {
     await wait(); this.need('cancel')
@@ -354,6 +381,52 @@ export class MockClient implements ApiClient {
     }
     r.status = status; return structuredClone(r)
   }
+  private archiveTable(tableId: string, how: 'paid' | 'unpaid') {
+    this.archive.push(...this.orders.filter(o => o.tableId === tableId).map(o => ({ ...o, settled: how })))
+    this.orders = this.orders.filter(o => o.tableId !== tableId)
+  }
+  // Effective menu: when a promotion has ended the dish goes back to its normal price automatically.
+  private menu(): MenuItem[] { return MOCK_MENU.map(m => (m.promoEndsAt && +new Date(m.promoEndsAt) <= Date.now() ? { ...m, priceXaf: m.oldPriceXaf ?? m.priceXaf, oldPriceXaf: undefined, promoEndsAt: undefined } : m)) }
+  private needAny(...p: Permission[]) {
+    const u = this.fresh(); if (!u) throw new ApiError(401, 'Connexion requise.')
+    if (!p.some(x => u.permissions.includes(x))) throw new ApiError(403, 'Action non autorisée pour votre rôle.')
+  }
+  private alerts(): Overview['alerts'] {
+    const today = new Date().toISOString().slice(0, 10), out: Overview['alerts'] = [], sum = (a: { amountXaf: number }[]) => a.reduce((x, y) => x + y.amountXaf, 0)
+    for (const [name, n] of Object.entries(this.placed)) { const c = this.cancelled[name] ?? 0; if (n >= 4 && c / n >= 0.25) out.push({ kind: 'cancel', detail: `${name}: ${c}/${n}` }) }
+    const dc = this.discountLog.filter(d => d.at.slice(0, 10) === today); if (dc.length >= 3) out.push({ kind: 'discount', detail: `${dc.length} / ${sum(dc)} FCFA` })
+    const up = this.unpaidLog.filter(u => u.at.slice(0, 10) === today); if (up.length) out.push({ kind: 'unpaid', detail: `${up.length} / ${sum(up)} FCFA` })
+    const gap = this.shifts.filter(x => x.closedAt?.slice(0, 10) === today && x.diffXaf); if (gap.length) out.push({ kind: 'cash', detail: gap.map(x => `${x.cashier} ${x.diffXaf} FCFA`).join(', ') })
+    return out
+  }
+  async closeTable(tableId: string, reason: string) {
+    await wait(); this.need('unpaid')
+    if (!reason.trim()) throw new ApiError(422, 'Motif requis.')
+    const b = this.bill(tableId)
+    if (b.remainingXaf <= 0) throw new ApiError(409, 'Rien à clôturer : la table n’a pas de solde impayé.')
+    this.unpaidLog.push({ tableId, amountXaf: b.remainingXaf, reason: reason.trim(), by: this.fresh()!.name, at: new Date().toISOString() })
+    this.archiveTable(tableId, 'unpaid'); this.pays.delete(tableId); this.discounts.delete(tableId); this.emit()
+  }
+  async listOrderHistory(from: string, to: string) {
+    await wait(); this.needAny('orders', 'dashboard')
+    const d = (o: Order) => o.createdAt.slice(0, 10)
+    return structuredClone([...this.archive, ...this.orders].filter(o => d(o) >= from && d(o) <= to).sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)))
+  }
+  async getDailyReport(date: string): Promise<DailyReport> {
+    await wait(); this.need('dashboard')
+    const day = (iso: string) => iso.slice(0, 10) === date, os = [...this.archive, ...this.orders].filter(o => day(o.createdAt))
+    return {
+      date, ordersPlaced: os.length,
+      billedXaf: os.filter(o => o.status !== 'cancelled').reduce((a, o) => a + o.lines.reduce((x, l) => x + l.qty * l.unitXaf, 0), 0),
+      collected: (['cash', 'mtn_momo', 'orange_money'] as PayMethod[]).map(method => ({ method, amountXaf: this.payRecs.filter(p => p.method === method && day(p.at)).reduce((a, p) => a + p.amountXaf, 0) })),
+      refundedXaf: this.refundLog.filter(r => day(r.at)).reduce((a, r) => a + r.amountXaf, 0),
+      discountsXaf: this.discountLog.filter(r => day(r.at)).reduce((a, r) => a + r.amountXaf, 0),
+      cancelled: os.filter(o => o.status === 'cancelled').map(o => ({ number: o.number, waiter: o.waiterName, reason: o.cancelReason ?? '', by: o.cancelledBy ?? '' })),
+      unpaid: this.unpaidLog.filter(u => day(u.at)).map(({ tableId, amountXaf, reason, by }) => ({ tableId, amountXaf, reason, by })),
+      shifts: this.shifts.filter(x => x.closedAt && day(x.closedAt)).map(x => ({ cashier: x.cashier, openingXaf: x.openingXaf, expectedXaf: x.expectedXaf!, countedXaf: x.countedXaf!, diffXaf: x.diffXaf!, note: x.note })),
+    }
+  }
+  async listPendingReservations() { await wait(100); this.need('reservations'); return structuredClone(this.reservations.filter(r => r.status === 'pending')) }
   private seatsOf(id: string) { return Number(id) % 3 === 0 ? 6 : 4 }
   private resCode(): string { let c: string; do { c = 'RV-' + this.newCode() } while (this.reservations.some(r => r.code === c)); return c }
   private free(date: string, time: string, party: number) {
@@ -417,9 +490,22 @@ export class MockClient implements ApiClient {
     return this.fresh()!
   }
   async logout() { this.user = null; try { sessionStorage.removeItem('rp-session') } catch { /* ignore */ } }
+  async signup(i: SignupInput) {
+    await wait()
+    if (!i.restaurantName.trim() || !i.name.trim() || !/^\S+@\S+\.\S+$/.test(i.email)) throw new ApiError(422, 'Nom du restaurant, nom et email valides requis.')
+    if (i.password.length < 10) throw new ApiError(422, 'Le mot de passe doit contenir au moins 10 caractères.')
+    if (this.accounts.some(a => a.email === i.email.trim().toLowerCase())) throw new ApiError(409, 'Cet email est déjà utilisé.')
+    // The demo has one restaurant, so signing up renames it. The real backend creates a separate restaurant with its own roles.
+    this.settings.restaurant.name = i.restaurantName.trim()
+    const a = { id: `u${this.accounts.length + 1}`, name: i.name.trim(), email: i.email.trim().toLowerCase(), role: 'owner', active: true, pw: i.password }
+    this.accounts.push(a); this.user = { name: a.name, email: a.email, role: 'owner', roleName: '', permissions: [] }
+    try { sessionStorage.setItem('rp-session', JSON.stringify(this.user)) } catch { /* demo only */ }
+    this.audit('Restaurant créé', i.restaurantName.trim())
+    return this.fresh()!
+  }
   async requestReset(_email: string) { await wait() } // always succeeds, never reveals whether the account exists
   async getSettings() { await wait(100); if (!this.user) throw new ApiError(401, 'Connexion requise.'); return structuredClone(this.settings) }
-  async getPublicSettings() { await wait(100); const { restaurant, payments } = this.settings; return structuredClone({ restaurant, payments }) }
+  async getPublicSettings(table?: string) { await wait(100); if (table !== undefined) this.table(table); const { restaurant, payments } = this.settings; return structuredClone({ restaurant, payments }) }
   async saveSettings(s: Settings) {
     await wait(); this.need('settings')
     if (!s.restaurant.name.trim()) throw new ApiError(422, 'Le nom du restaurant est obligatoire.')
@@ -448,6 +534,7 @@ export class MockClient implements ApiClient {
   async saveMenuItem(m: Partial<MenuItem> & { name: string; priceXaf: number; category: string }) {
     await wait(); this.need('menu')
     if (!m.name.trim() || !Number.isInteger(m.priceXaf) || m.priceXaf <= 0) throw new ApiError(422, 'Nom et prix valides requis.')
+    if (m.oldPriceXaf != null && m.oldPriceXaf <= m.priceXaf) throw new ApiError(422, 'Le prix barré doit être supérieur au prix.')
     const i = MOCK_MENU.findIndex(x => x.id === m.id)
     if (i >= 0) { MOCK_MENU[i] = { ...MOCK_MENU[i]!, ...m }; return structuredClone(MOCK_MENU[i]!) }
     const n: MenuItem = { cooking: false, available: true, ...m, id: `m${MOCK_MENU.length + 1}` }
@@ -483,7 +570,7 @@ export class MockClient implements ApiClient {
     const staff: Record<string, number> = {}
     this.orders.forEach(o => { staff[o.waiterName] = (staff[o.waiterName] ?? 0) + 1 })
     return {
-      sample: true,
+      sample: true, alerts: this.alerts(),
       kpis: [kpi('collected', this.ledger.reduce((a, x) => a + x.a, 0), 12.4), kpi('orders', this.n - 1039, -4.2), kpi('tables', bills.filter(b => b.totalXaf > 0).length, 8.1), kpi('outstanding', bills.reduce((a, b) => a + b.remainingXaf, 0), -20.1)],
       monthly: months.map((month, i) => ({ month, billedXaf: Math.round([2.1, 2.4, 2.2, 2.9, 2.6, 3.1, 2.8, 3.3][i]! * 1e6), collectedXaf: Math.round([1.9, 2.2, 2.1, 2.6, 2.4, 2.9, 2.6, 3.0][i]! * 1e6) })),
       recent: [...this.orders].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)).slice(0, 6)
@@ -505,9 +592,9 @@ export class MockClient implements ApiClient {
     await wait()
     const hit = this.seen.get(key) as Order | undefined; if (hit) return structuredClone(hit) // idempotent retry
     const lines = input.lines.map((l, i) => {
-      const m = MOCK_MENU.find(x => x.id === l.menuItemId)
+      const m = this.menu().find(x => x.id === l.menuItemId)
       if (!m || !m.available || l.qty < 1) throw new ApiError(422, 'Plat indisponible.')
-      const extra = l.modifiers.includes('Sauce piquante') ? 500 : 0 // the server prices, never the client
+      const extra = l.modifiers.reduce((a, mod) => a + (m.options?.find(o => o.name === mod)?.priceXaf ?? 0), 0) // the server prices, never the client
       return { id: `l${this.n}-${i}`, name: m.name, qty: l.qty, unitXaf: m.priceXaf + extra, modifiers: l.modifiers, note: l.note, prep: m.prep ?? 'made' }
     })
     const o: Order = { id: `o${++this.n}`, number: this.n, tableId: input.tableId, status: lines.every(l => l.prep === 'ready') ? 'ready' : 'submitted', createdAt: new Date().toISOString(), waiterName: channel === 'qr' ? 'Client' : (this.user?.name ?? 'Marc'), channel, lines, version: 1, placedBy: channel === 'qr' ? undefined : this.user?.email }
@@ -535,7 +622,7 @@ export class MockClient implements ApiClient {
     this.pays.set(tableId, [...(this.pays.get(tableId) ?? []), p]); this.payRecs.push({ id: p.id, tableId, amountXaf: p.amountXaf, method: p.method, at: p.at, refundedXaf: 0 }); if (p.method === 'cash') this.shiftOf()!.cashSales += p.amountXaf
     const remainingXaf = b.remainingXaf - p.amountXaf
     const rc: Receipt = { number: this.r, tableId, discountXaf: b.discountXaf || undefined, waiterName: this.orders.find(o => o.tableId === tableId)?.waiterName, lines: b.lines, totalXaf: b.totalXaf, amountXaf: p.amountXaf, method: p.method, remainingXaf, at: p.at }
-    if (remainingXaf === 0) { this.orders = this.orders.filter(o => o.tableId !== tableId); this.pays.delete(tableId); this.discounts.delete(tableId) } // session closes only when the balance is zero
+    if (remainingXaf === 0) { this.archiveTable(tableId, 'paid'); this.pays.delete(tableId); this.discounts.delete(tableId) } // session closes only when the balance is zero
     this.seen.set(key, rc); this.emit(); return structuredClone(rc)
   }
   private table(token: string) {

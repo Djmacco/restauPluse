@@ -1,13 +1,16 @@
 import { useState } from 'react'
-import { useCancelOrder, useOrders, useSession } from '../../api/hooks'
+import { useCancelOrder, useOrderHistory, useOrders, useSession } from '../../api/hooks'
 import { locale, useT } from '../../i18n'
 import { can, formatXaf, orderTotalXaf, type OrderStatus } from '../../domain/types'
 
 const SN: Record<OrderStatus, string> = { submitted: 'Reçue', accepted: 'Acceptée en cuisine', preparing: 'En préparation', ready: 'Prête', served: 'Servie', cancelled: 'Annulée' }
 const TAG: Record<OrderStatus, string> = { submitted: 't-new', accepted: 't-occ', preparing: 't-bill', ready: 't-ok', served: 't-free', cancelled: 't-late' }
 
+const today = () => new Date().toISOString().slice(0, 10)
 export function OrderList() {
-  const tx = useT(), q = useOrders(), me = useSession().data, cancel = useCancelOrder()
+  const tx = useT(), live = useOrders(), me = useSession().data, cancel = useCancelOrder()
+  const [mode, setMode] = useState<'live' | 'history'>('live'), [from, setFrom] = useState(today()), [to, setTo] = useState(today())
+  const hist = useOrderHistory(from, to, mode === 'history'), q = mode === 'live' ? live : hist
   const [f, setF] = useState<OrderStatus | 'all'>('all'), [sel, setSel] = useState<string | null>(null), [why, setWhy] = useState('')
   if (q.isPending) return <p className="empty">{tx('Chargement des commandes…')}</p>
   if (q.isError) return <div className="empty">{tx('Impossible de charger les commandes.')} <button className="btn s" onClick={() => q.refetch()}>{tx('Réessayer')}</button></div>
@@ -15,12 +18,16 @@ export function OrderList() {
   return (
     <>
       <h1>{tx('Commandes')}</h1>
+      <div className="row" style={{ flexWrap: 'wrap', margin: '6px 0 10px' }}>
+        <div className="st-tabs" style={{ margin: 0 }} role="group"><button aria-pressed={mode === 'live'} onClick={() => setMode('live')}>{tx('En cours')}</button><button aria-pressed={mode === 'history'} onClick={() => setMode('history')}>{tx('Historique')}</button></div>
+        {mode === 'history' && <><input type="date" aria-label={tx('Du')} value={from} max={to} onChange={e => setFrom(e.target.value)} style={{ maxWidth: 180 }} /><input type="date" aria-label={tx('Au')} value={to} min={from} onChange={e => setTo(e.target.value)} style={{ maxWidth: 180 }} /></>}
+      </div>
       <div className="st-tabs" role="group" aria-label={tx('Statut')}>{(['all', ...Object.keys(SN)] as (OrderStatus | 'all')[]).map(k => <button key={k} aria-pressed={f === k} onClick={() => setF(k)}>{k === 'all' ? tx('Toutes') : tx(SN[k])}</button>)}</div>
       <div className="card"><div className="ad-scroll"><table className="ad-tbl"><thead><tr>{['N°', 'Table', 'Plats', 'Statut', 'Heure', 'Total'].map(h => <th key={h} scope="col">{tx(h)}</th>)}<th /></tr></thead>
         <tbody>{rows.map(o => (
           <tr key={o.id}><td>{o.number}</td><td>{o.tableId}</td>
             <td>{o.lines.map(l => `${l.qty} ${tx(l.name)}`).join(', ')}<br /><span className="sm mu">{tx('Serveur')} : {o.waiterName}</span>{o.cancelReason && <><br /><span className="sm" style={{ color: 'var(--rd)' }}>{tx('Motif')} : {o.cancelReason}, {tx('par')} {o.cancelledBy}</span></>}</td>
-            <td><span className={`tag ${TAG[o.status]}`}>{tx(SN[o.status])}</span></td>
+            <td><span className={`tag ${TAG[o.status]}`}>{tx(SN[o.status])}</span>{o.settled === 'unpaid' && <span className="tag t-late" style={{ marginLeft: 4 }}>{tx('Impayé')}</span>}</td>
             <td>{new Date(o.createdAt).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}</td><td>{formatXaf(orderTotalXaf(o))}</td>
             <td>{can(me, 'cancel') && (['submitted', 'accepted'].includes(o.status) || (o.status === 'preparing' && can(me, 'refunds'))) && (sel === o.id ? (
               <div className="row" style={{ flexWrap: 'wrap' }}>

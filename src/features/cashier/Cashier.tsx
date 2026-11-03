@@ -1,7 +1,7 @@
 import { useT, locale } from '../../i18n'
 import { useState } from 'react'
 import { ReceiptPaper } from '../receipt/ReceiptPaper'
-import { DiscountForm, RefundsPanel } from './Refunds'
+import { CloseTableForm, DiscountForm, RefundsPanel } from './Refunds'
 import { ShiftBar } from './Shift'
 import { useSession, useSettings, useBill, useOnline, useRecordPayment, useTables } from '../../api/hooks'
 import { can, balanceXaf, formatXaf, METHOD_LABEL, type Bill, type PayMethod, type Receipt } from '../../domain/types'
@@ -105,6 +105,7 @@ export function Cashier() {
               <div className={`rem ${b.remainingXaf ? '' : 'z'}`}><span className="sm" style={{ display: 'block', fontWeight: 500 }}>{tx('Reste à payer')}</span>{formatXaf(b.remainingXaf)}</div>
               <button className="btn p w" disabled={!b.remainingXaf} onClick={() => setPaying(true)}>{tx('Encaisser un paiement')}</button>
               {can(me, 'refunds') && b.remainingXaf > 0 && <DiscountForm tableId={b.tableId} />}
+              {can(me, 'unpaid') && b.remainingXaf > 0 && <CloseTableForm tableId={b.tableId} remaining={b.remainingXaf} />}
             </div>
           ) : sel ? <p className="empty">{tx('Chargement de l’addition…')}</p> : <div className="empty card">{tx('Sélectionnez une addition.')}</div>}
         </div>

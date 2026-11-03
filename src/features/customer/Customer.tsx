@@ -46,8 +46,8 @@ export function Customer() {
   const [name, setName] = useState(''), [guests, setGuests] = useState(2), [code, setCode] = useState('')
   const [cart, setCart] = useState<Line[]>([]), [pick, setPick] = useState<MenuItem | null>(null)
   const [q, setQ] = useState(''), [sort, setSort] = useState(false), [pay, setPay] = useState<PayMethod>('cash'), [msg, setMsg] = useState(''), [done, setDone] = useState<Order | null>(null)
-  const orders = useCustomerOrders(token), menu = useMenu(), online = useOnline(), now = useNow()
-  const submit = useCustomerSubmit(token ?? ''), svc = useServiceRequest(token ?? ''), cfg = usePublicSettings().data
+  const orders = useCustomerOrders(token), menu = useMenu(token), online = useOnline(), now = useNow()
+  const submit = useCustomerSubmit(token ?? ''), svc = useServiceRequest(token ?? ''), cfg = usePublicSettings(token).data
   const items = menu.data ?? []
   const tableOk = !!token && orders.isSuccess
   const qty = (id: string) => cart.filter(l => l.menuItemId === id).reduce((a, l) => a + l.qty, 0)
@@ -55,7 +55,7 @@ export function Customer() {
 
   const inc = (m: MenuItem) => {
     if (m.stock != null && qty(m.id) >= m.stock) return
-    if (m.cooking) return setPick(m)
+    if (m.cooking || m.options?.length) return setPick(m)
     setCart(c => { const i = c.findIndex(l => l.menuItemId === m.id && !l.modifiers.length); return i < 0 ? [...c, { menuItemId: m.id, name: m.name, qty: 1, unitXaf: m.priceXaf, modifiers: [], note: '' }] : c.map((l, k) => (k === i ? { ...l, qty: l.qty + 1 } : l)) })
   }
   const dec = (id: string) => setCart(c => { const i = c.map(l => l.menuItemId).lastIndexOf(id); return c.flatMap((l, k) => (k !== i ? [l] : l.qty > 1 ? [{ ...l, qty: l.qty - 1 }] : [])) })
@@ -65,7 +65,7 @@ export function Customer() {
   const sub = cart.reduce((a, l) => { const m = base(l); return a + (l.unitXaf - (m?.priceXaf ?? 0) + (m?.oldPriceXaf ?? m?.priceXaf ?? 0)) * l.qty }, 0)
   const total = cart.reduce((a, l) => a + l.unitXaf * l.qty, 0)
 
-  const promos = items.filter(m => m.promoEndsAt)
+  const promos = items.filter(m => m.promoEndsAt && +new Date(m.promoEndsAt) > now)
   const ends = promos.length ? Math.min(...promos.map(m => +new Date(m.promoEndsAt!))) : 0
   const rest = items.filter(m => m.name.toLowerCase().includes(q.toLowerCase())).sort((a, b) => (sort ? a.priceXaf - b.priceXaf : 0))
   const last = [...(orders.data ?? [])].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0]
