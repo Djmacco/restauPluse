@@ -10,6 +10,7 @@ import { DailyReport } from './features/reports/DailyReport'
 import { PublicHome } from './features/home/PublicHome'
 import { QueueSync } from './features/offline/QueueSync'
 import { Signup } from './features/auth/Signup'
+import { InstallButton } from './features/install/InstallButton'
 import { Booking } from './features/booking/Booking'
 import { Cashier } from './features/cashier/Cashier'
 import { Customer } from './features/customer/Customer'
@@ -37,7 +38,8 @@ function Shell() {
   const allowed = ['admin', 'tables', 'orderlist', 'report', 'kitchen', 'cashier', 'reservations', 'audit', 'settings'].filter(k => canOpen(me, k))
   const v = want && allowed.includes(want) ? want : homeView(me)
   const shell = { allowed, go: setWant, onLogout: () => out.mutate() }
-  if (v === 'none') return <div className="empty"><p>{tx('Aucun accès pour ce rôle. Demandez au propriétaire.')}</p><button className="btn s" onClick={() => out.mutate()}>{tx('Se déconnecter')}</button></div>
+  if (v === 'none') return <div className="empty"><p>{tx('Aucun accès pour ce rôle. Demandez au propriétaire.')}</p><InstallButton className="btn s" />
+        <button className="btn s" onClick={() => out.mutate()}>{tx('Se déconnecter')}</button></div>
   if (v === 'admin') return <Admin shell={shell} />
   if (v === 'settings') return <Settings shell={shell} />
   const View = PLAIN[v]![1]

@@ -2,6 +2,7 @@ import { useState, type CSSProperties, type PointerEvent, type ReactNode } from 
 import { useOverview } from '../../api/hooks'
 import { LangSwitch, locale, useT } from '../../i18n'
 import { METHOD_LABEL, type Overview, type OrderStatus, type PayMethod } from '../../domain/types'
+import { InstallButton } from '../install/InstallButton'
 import { Notifications } from '../notifications/Notifications'
 import { Ic, Logo } from '../../ui/icons'
 
@@ -137,7 +138,7 @@ export function AdminShell({ current, shell, children }: { current: string; shel
       <aside className="ad-side">
         <div className="ad-brand"><Logo size={30} /><span>RestoPulse</span></div>
         <div role="navigation" aria-label={tx('Navigation principale')} className="ad-nav">{NAV.filter(([k]) => shell.allowed.includes(k)).map(([k, l, ic]) => <button key={k} aria-current={k === current} onClick={() => shell.go(k)}><Ic n={ic} size={20} /><span>{tx(l)}</span></button>)}</div>
-        <div className="ad-lang"><LangSwitch /><button className="ad-out" onClick={shell.onLogout}><Ic n="out" size={18} /><span>{tx('Se déconnecter')}</span></button></div>
+        <div className="ad-lang"><LangSwitch /><InstallButton className="ad-out" /><button className="ad-out" onClick={shell.onLogout}><Ic n="out" size={18} /><span>{tx('Se déconnecter')}</span></button></div>
       </aside>
       <section className="ad-main">{children}</section>
     </div>

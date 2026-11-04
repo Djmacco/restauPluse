@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useLogin, useReset } from '../../api/hooks'
+import { InstallButton } from '../install/InstallButton'
 import { LangSwitch, useT } from '../../i18n'
 import { Logo } from '../../ui/icons'
 
@@ -24,6 +25,7 @@ export function Login({ onCustomer, onBook, onHome, onSignup }: { onCustomer: ()
         <button className="btn p w" type="submit" disabled={!email.trim() || (!forgot && !pw) || login.isPending || reset.isPending}>
           {login.isPending ? tx('Connexion…') : forgot ? tx('Envoyer le lien') : tx('Se connecter')}</button>
       </form>
+      <div style={{ marginTop: 10 }}><InstallButton className="btn w" /></div>
       <button className="lg-link" onClick={() => { setForgot(!forgot); reset.reset() }}>{forgot ? tx('Retour à la connexion') : tx('Mot de passe oublié ?')}</button>
       {DEMO && !forgot && <div className="lg-demo"><p className="sm mu" style={{ margin: 0 }}>{tx('Comptes de démonstration (sans valeur réelle)')}</p>
         <div>{ACCOUNTS.map(([e, p, r]) => <button key={e} className="btn s" onClick={() => { setEmail(e); setPw(p) }}>{tx(r)}</button>)}</div></div>}

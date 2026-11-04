@@ -507,4 +507,6 @@ export const EN: Record<string, string> = {
   'Le mot de passe doit contenir au moins 10 caractères.': 'The password must be at least 10 characters.',
   'Nom du restaurant, nom et email valides requis.': 'A valid restaurant name, name and email are required.',
   'Restaurant créé': 'Restaurant created',
+  'Installer l’application': 'Install the app',
+  'Touchez Partager, puis « Sur l’écran d’accueil ».': 'Tap Share, then “Add to Home Screen”.',
 }
